@@ -1,0 +1,4 @@
+Test Steps,Data
+open website,http://ec2-54-183-112-83.us-west-1.compute.amazonaws.com:9022/
+enter email,test
+enter password,pas
