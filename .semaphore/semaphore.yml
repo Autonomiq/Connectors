@@ -45,7 +45,7 @@ blocks:
       minutes: 2
     task:
       jobs:
-      - name: Cucumber
+      - name: Application
         commands:
           - checkout
           - echo "make cucumber"
