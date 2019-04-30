@@ -41,31 +41,31 @@ blocks:
           - checkout
           - echo "make security"
   - name: "Integration tests"
-    execution_time_limit:
-      minutes: 2
     task:
       jobs:
-      - name: Application
+      - name: Cucumber
         commands:
           - checkout
           - echo "make cucumber"
-          - chmod +x port_forward.sh
-          - ./port_forward.sh
-          - cd py
-          - ./install.sh
-          - nohup ./sanitypython/bin/python test_app.py >/dev/null 2>&1 &
-          - sleep 6
-          - echo "Started Flask APP"
 
   - name: "Autonomiq tests"
+    execution_time_limit:
+      minutes: 15
     task:
       jobs:
       - name: Autonomiq
         commands:
           - checkout
           - echo "make Autonomiq"
+          - chmod +x port_forward.sh
           - cd py
-          - ./sanitypython/bin/python test_executor.py -f ../tests/test.csv
+          - ./install.sh
+          - nohup ./sanitypython/bin/python test_app.py >/dev/null 2>&1 &
+          - sleep 16
+          - echo "Started Flask APP"
+          - ../port_forward.sh
+          - ./sanitypython/bin/python test_executor.py -f ../other_tests/test.csv
+          - sleep 60
 
   - name: "Push Image"
     task:
