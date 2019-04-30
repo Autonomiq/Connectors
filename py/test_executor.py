@@ -31,20 +31,15 @@ class ApiTestHandler:
 
     def generate_test_script(self, test_case_ids, url="/v1/projects/{project_id}/generate"):
         url = url.format(project_id=self.project_id)
-        payload = {"sessionId": "auT0M00iq", "accountId": self.userAccount, "testCaseIds": test_case_ids}
-
+        payload = {"sessionId": "auT0M00iq", "testCases": test_case_ids}
         headers = self.get_header()
         del headers['content-type']
-
         response = requests.request("POST", self.base_url + url, json=payload, headers=headers)
-        print(response.text)
+        return response
 
     def get_testcase(self, test_case_id, url="/v1/projects/{project_id}/testcases/{test_case_id}/gettestcase"):
         url = url.format(project_id=self.project_id, test_case_id=test_case_id)
-        # print("url: {}".format(url))
-
         response = requests.request("GET", self.base_url + url, headers=self.get_header())
-        # print(response.text)
         return response.text
 
     # print("got back json response: {}".format(project_response))
@@ -53,9 +48,7 @@ class ApiTestHandler:
 
     def upload_testcase(self, test_case_file, test_data_file, url="/v1/projects/{0}/testcases/upload"):
         url = url.format(self.project_id)
-
         print("url: {}".format(url))
-
         # files = {'file': (test_case_file, open(test_case_file, 'rb'))}
         files = {'casefile': open(test_case_file, 'rb'), 'datafile': open(test_data_file, 'rb')}
         print("test_case_file: {}".format(test_case_file))
@@ -139,56 +132,69 @@ class ApiTestHandler:
         rsp = requests.put(self.base_url + url, json=params, headers=headers, verify=False)
         return rsp
 
+    def execute_testsuite(self, test_suite_id, data, url="/v1/testsuite/{test_suite_id}/execute"):
+        url = url.format(test_suite_id=test_suite_id)
+        headers = self.get_header()
+        del headers['content-type']
+        response = self.post_request(url, params=data, headers=headers)
+        return response
 
-def process_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--server', help='Endpoint for Autonomiq server',
-                        default='https://dev.internal.autonomiq.ai')
-    parser.add_argument('-u', '--user', help='Username',
-                        default='testuser')
-    parser.add_argument('-p', '--pass', help='Password',
-                        default='test1')
-    parser.add_argument('-f', '--files', help='Test Case Files to run',
-                        default='../**/*.csv')
+    def get_all_project(self, url="/v1/getprojects"):
+        headers = self.get_header()
+        return self.get_request(url, headers=headers)
 
+    def get_json(self, response):
+        if response.status_code == 200:
+            return json.loads(response.text)
+        return []
 
-# Callrail suggested options (Wai-Leong)
+    def get_test_cases_by_project_id(self, project_id, url="/v1/projects/{project_id}/testcases"):
+        url = url.format(project_id=project_id)
+        response = self.get_request(url, headers=self.get_header())
+        return response
 
-    parser.add_argument('-p', '--project', help='Project to run',
-                        default='../**/*.csv')
-
-    parser.add_argument('--suite', help='Suites to run',
-                        default='../**/*.csv')
-
-    # test_executor --suite="Sanity, new, overnight, allbuild, ..."
-
-    # Support it so that we can have one for sanity, and one for overnight as needed
-
-
-    # Suites currently execute only, does not support smart maintenance, we shoudl support rediscovery as well as an option
-    # if running a suite
-
-    # Suites might be defined in a project but should not matter because by API, u can run suites by name etc
-
-
-## Call rail
-
-    parser.add_argument('-r', '--recorder_files', help='Test Recorder',
-                        default='../**/*.json')
-    parser.add_argument('-c', '--cleanup', help='Cleanup temp Project',
-                        default=False, action="store_true")
-
-    settings = vars(parser.parse_args())
-    return settings
+    def get_test_case_details_by_project_name(self, project_name):
+        projects = self.get_json(self.get_all_project())
+        test_cases_details = []
+        if not projects:
+            print('Project {} is not found'.format(project_name))
+            return []
+        for project in projects:
+            if project['projectName'] == project_name:
+                self.project_id = project['projectId']
+                project_id = project['projectId']
+                response = self.get_test_cases_by_project_id(project_id)
+                test_cases_details = self.get_json(response)
+                return test_cases_details if test_cases_details else []
+        return []
 
 
-if __name__ == '__main__':
+    def run_test_case_by_test_case_id_and_project_id(self, test_case_id):
+        return self.generate_test_script([test_case_id])
 
-    _settings = process_args()
+    def get_all_suites(self, url="/v1/gettestsuites"):
+        headers = self.get_header()
+        return self.get_request(url, headers=headers)
 
-    api_test_handler = ApiTestHandler(_settings)
-    api_test_handler.get_token()
+    def get_suite_id(self, suite_name=''):
+        project_name = None
 
+        if '|' in suite_name:
+            project_name, suite_name = suite_name.split('|')
+        else:
+            print('Should be in this format "[project_name]|[suite_name]"')
+
+        response = self.get_all_suites()
+        if response.status_code == 200:
+            all_suite = json.loads(response.text)
+            for suite in all_suite:
+                if suite['testSuiteName'] == suite_name and project_name == suite['projectName']:
+                    print(suite)
+                    return suite['testSuiteId']
+        return None
+
+
+def run_test_cases(_settings, api_test_handler):
     project_response = api_test_handler.create_project(name="Sanity_{}".format(random.randint(999, 100000)))
 
     test_cases_errors = []
@@ -209,7 +215,7 @@ if __name__ == '__main__':
 
     # files = _settings['files']
     try:
-        if _settings['files']!="skip":
+        if _settings['files'] != "skip":
             test_files = glob.glob(_settings['files'], recursive=True)
 
             for tc in test_files:
@@ -220,15 +226,15 @@ if __name__ == '__main__':
                 # response: {"test_case_id": 674, "name": "Test_AirBnB_with_excel_formula",
                 #            "creation_time": "2019-02-05T23:49:37.648531397Z"}
 
-                #print("json: out")
-                #print(j)
-                #j = json.loads(resp)
-                #print(j)
+                # print("json: out")
+                # print(j)
+                # j = json.loads(resp)
+                # print(j)
                 test_case_id = j["success"][0]["test_case_id"]
                 resp = api_test_handler.get_testcase(test_case_id)
                 print(j)
                 # 'testScriptDownloadLink': 'http://minio:9000/000001/appuser/1/Sanity/64/688/Test_nearby_with_quotes.java', 'testScriptGenerationStatus': 'SUCCESS',
-                while j['status'] is True or j['status']==0:
+                while j['status'] is True or j['status'] == 0:
                     time.sleep(10)
                     print("..sleeping...\n")
 
@@ -238,7 +244,8 @@ if __name__ == '__main__':
 
                 script_result = j['testScripts'][0]
 
-                if len(script_result["testScriptDownloadLink"]) > 0 and script_result['testScriptGenerationStatus'] != 'FAILED':
+                if len(script_result["testScriptDownloadLink"]) > 0 and script_result[
+                    'testScriptGenerationStatus'] != 'FAILED':
                     print("PASSED")
                     # date2 = datetime.now()
 
@@ -250,13 +257,16 @@ if __name__ == '__main__':
                     test_cases_passed.append({"test_case_id": test_case_id,
                                               "time_taken": time_taken,
                                               "url": api_test_handler.base_url + "/{project_id}/{test_case_id}"
-                                             .format(project_id=api_test_handler.project_id, test_case_id=test_case_id)})
+                                             .format(project_id=api_test_handler.project_id,
+                                                     test_case_id=test_case_id)})
                 else:
                     test_cases_errors.append({"test_case_id": test_case_id,
                                               "failed_message": j['statusMessage'],
                                               # "time_taken": time_taken,
-                                              "url": api_test_handler.base_url.replace("platform", "details") + "/{project_id}/{test_case_id}"
-                                             .format(project_id=api_test_handler.project_id, test_case_id=test_case_id)})
+                                              "url": api_test_handler.base_url.replace("platform",
+                                                                                       "details") + "/{project_id}/{test_case_id}"
+                                             .format(project_id=api_test_handler.project_id,
+                                                     test_case_id=test_case_id)})
 
                 print("Number of Tests Passed: {}".format(len(test_cases_passed)))
                 print("Number of Tests Failed: {}".format(len(test_cases_errors)))
@@ -296,3 +306,64 @@ if __name__ == '__main__':
             len(test_cases_passed) * 100.0 / total_tests))
 
         print("Test Case Errors: {}".format(test_cases_errors))
+
+
+
+
+def run_suite(_settings, api_test_handler, browser='chrome', platform='linux', execution_mode='parallel'):
+    suite_name = _settings['suite']
+    test_suite_id = api_test_handler.get_suite_id(suite_name)
+    if not test_suite_id:
+        print('Suite Name not found')
+    else:
+        data = {"platform": platform, "browser": browser, "browserVersion": "", "executionType": "smoke",
+                "executionMode": execution_mode}
+        response = api_test_handler.execute_testsuite(test_suite_id, data)
+        if response.status_code == 200:
+            print('Test Suite is running')
+        else:
+            print('Test Suite is not running')
+
+def run_project_test_cases(_settings, api_test_handler):
+    project_name = _settings['project']
+    test_case_details = api_test_handler.get_test_case_details_by_project_name(project_name)
+    print('Total Test Case in {} project is "{}"'.format(project_name, len(test_case_details)))
+    for test_case in test_case_details:
+        test_case_id = test_case['testCaseId']
+        api_test_handler.run_test_case_by_test_case_id_and_project_id(test_case_id)
+        print('Test Case "{}" is running'.format(test_case['testCaseName']))
+
+def process_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s', '--server', help='Endpoint for Autonomiq server',
+                        default='https://dev.internal.autonomiq.ai')
+    parser.add_argument('-u', '--user', help='Username',
+                        default='testuser')
+    parser.add_argument('-p', '--pass', help='Password',
+                        default='test1')
+    parser.add_argument('-f', '--files', help='Test Case Files to run',
+                        default='../**/*.csv')
+    parser.add_argument('-pr', '--project', help='Project to run',
+                        default='')
+    parser.add_argument('-su', '--suite', help='Suites to run, eg: "[project_name]|[suite_name]"',
+                        default='')
+    parser.add_argument('-r', '--recorder_files', help='Test Recorder',
+                        default='../**/*.json')
+    parser.add_argument('-c', '--cleanup', help='Cleanup temp Project',
+                        default=False, action="store_true")
+
+    settings = vars(parser.parse_args())
+    return settings
+
+
+if __name__ == '__main__':
+
+    _settings = process_args()
+    api_test_handler = ApiTestHandler(_settings)
+    api_test_handler.get_token()
+    # run_test_cases(_settings, api_test_handler)
+    run_suite(_settings, api_test_handler)
+    run_project_test_cases(_settings, api_test_handler)
+    # api_test_handler.get_test_case_details_by_project_name("test3")
+
+
